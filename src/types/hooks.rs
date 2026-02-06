@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 /// Hook events that can be intercepted.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub enum HookEvent {
     #[serde(rename = "preToolUse")]
     PreToolUse,
@@ -19,6 +20,24 @@ pub enum HookEvent {
     SubagentStop,
 }
 
+impl std::fmt::Display for HookEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl HookEvent {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::PreToolUse => "PreToolUse",
+            Self::PostToolUse => "PostToolUse",
+            Self::Notification => "Notification",
+            Self::Stop => "Stop",
+            Self::SubagentStop => "SubagentStop",
+        }
+    }
+}
+
 /// Matcher for which tool/event a hook applies to.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HookMatcher {
@@ -27,30 +46,36 @@ pub struct HookMatcher {
 }
 
 /// Input for a preToolUse hook.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PreToolUseInput {
+    #[serde(default)]
     pub tool_name: String,
+    #[serde(default)]
     pub tool_input: Value,
 }
 
 /// Input for a postToolUse hook.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PostToolUseInput {
+    #[serde(default)]
     pub tool_name: String,
+    #[serde(default)]
     pub tool_input: Value,
+    #[serde(default)]
     pub tool_output: Value,
 }
 
 /// Input for a notification hook.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NotificationInput {
+    #[serde(default)]
     pub title: String,
     #[serde(default)]
     pub message: Option<String>,
 }
 
 /// Input for a stop hook.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StopInput {
     #[serde(default)]
     pub reason: Option<String>,
@@ -59,6 +84,7 @@ pub struct StopInput {
 /// Discriminated hook input passed to callbacks.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum HookInput {
     PreToolUse(PreToolUseInput),
     PostToolUse(PostToolUseInput),
@@ -79,13 +105,31 @@ pub struct HookOutput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum HookDecision {
     Approve,
     Block,
     Ignore,
 }
 
+impl std::fmt::Display for HookDecision {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl HookDecision {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Approve => "approve",
+            Self::Block => "deny",
+            Self::Ignore => "ignore",
+        }
+    }
+}
+
 impl HookOutput {
+    #[must_use]
     pub fn approve() -> Self {
         Self {
             decision: Some(HookDecision::Approve),
@@ -93,6 +137,7 @@ impl HookOutput {
         }
     }
 
+    #[must_use]
     pub fn block(reason: impl Into<String>) -> Self {
         Self {
             decision: Some(HookDecision::Block),
@@ -100,6 +145,7 @@ impl HookOutput {
         }
     }
 
+    #[must_use]
     pub fn ignore() -> Self {
         Self {
             decision: Some(HookDecision::Ignore),

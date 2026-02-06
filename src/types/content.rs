@@ -4,6 +4,7 @@ use serde_json::Value;
 /// A block of content within a message.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ContentBlock {
     Text {
         text: String,

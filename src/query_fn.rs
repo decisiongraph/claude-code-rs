@@ -2,7 +2,6 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::error::{Error, Result};
 use crate::query::Query;
-use crate::transport::cli_discovery;
 use crate::transport::subprocess::SubprocessTransport;
 use crate::types::messages::Message;
 use crate::types::options::ClaudeAgentOptions;
@@ -47,11 +46,7 @@ pub async fn query(
     prompt: &str,
     options: ClaudeAgentOptions,
 ) -> Result<ReceiverStream<Result<Message>>> {
-    let cli_path = match options.cli_path {
-        Some(ref p) => p.clone(),
-        None => cli_discovery::find_cli()?,
-    };
-
+    let cli_path = options.resolve_cli_path()?;
     let transport = SubprocessTransport::new(cli_path, &options);
     let mut q = Query::new(
         Box::new(transport),
@@ -66,12 +61,12 @@ pub async fn query(
     // Send the prompt.
     q.send_message(prompt, None).await?;
 
-    // Return the message stream. The Query and transport are kept alive
-    // by the spawned tasks until the channel is dropped.
-    // We leak the Query intentionally - it will be cleaned up when
-    // the spawned tasks finish (transport closes, channels drop).
-    // This matches the Python SDK's query() behavior.
-    std::mem::forget(q);
+    // Keep Query alive in a background task until the consumer channel closes.
+    // When rx is dropped by the consumer, consumer_tx.send() fails and the
+    // router exits, then this task drops q — triggering proper cleanup.
+    tokio::spawn(async move {
+        q.closed().await;
+    });
 
     Ok(ReceiverStream::new(rx))
 }
@@ -83,21 +78,10 @@ pub async fn query_collect(
     prompt: &str,
     options: ClaudeAgentOptions,
 ) -> Result<Vec<Message>> {
-    use tokio_stream::StreamExt;
+    use crate::types::messages::collect_until_result;
 
     let mut stream = query(prompt, options).await?;
-    let mut messages = Vec::new();
-
-    while let Some(msg) = stream.next().await {
-        let msg = msg?;
-        let is_result = msg.is_result();
-        messages.push(msg);
-        if is_result {
-            break;
-        }
-    }
-
-    Ok(messages)
+    collect_until_result(&mut stream).await
 }
 
 /// Execute a query and return just the text response.

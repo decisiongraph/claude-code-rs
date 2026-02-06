@@ -6,6 +6,7 @@ use super::hooks::HookDefinition;
 use super::mcp_config::McpServerConfig;
 use super::permissions::{CanUseToolCallback, PermissionMode};
 use super::sandbox::SandboxSettings;
+use crate::transport::cli_discovery;
 
 /// Configuration options for a Claude Agent SDK query or client.
 ///
@@ -104,6 +105,16 @@ pub struct ClaudeAgentOptions {
 /// Callback for CLI stderr lines.
 pub type StderrCallback =
     std::sync::Arc<dyn Fn(String) + Send + Sync>;
+
+impl ClaudeAgentOptions {
+    /// Resolve the CLI path: use the configured one or auto-detect.
+    pub fn resolve_cli_path(&self) -> crate::error::Result<PathBuf> {
+        match self.cli_path {
+            Some(ref p) => Ok(p.clone()),
+            None => cli_discovery::find_cli(),
+        }
+    }
+}
 
 impl std::fmt::Debug for ClaudeAgentOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

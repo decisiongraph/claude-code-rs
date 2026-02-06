@@ -11,10 +11,7 @@ pub mod sandbox;
 // Re-exports for convenience.
 pub use agents::AgentDefinition;
 pub use content::ContentBlock;
-pub use control::{
-    SDKCapabilities, SDKControlCommand, SDKControlRequest, SDKControlResponse, SDKInitMessage,
-    SDKInitResponse,
-};
+pub use control::{SDKCapabilities, SDKControlCommand};
 pub use hooks::{
     HookCallback, HookDecision, HookDefinition, HookEvent, HookInput, HookMatcher, HookOutput,
 };

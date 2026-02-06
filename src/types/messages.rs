@@ -1,13 +1,16 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio_stream::{Stream, StreamExt};
 
 use super::content::ContentBlock;
+use crate::error::Result;
 
 /// A message from the Claude CLI streaming protocol.
 ///
 /// The CLI emits newline-delimited JSON objects with a top-level `type` field.
 /// Each variant corresponds to one of these message types.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum Message {
     /// System-level message (init acknowledgment, etc.)
     System {
@@ -133,16 +136,13 @@ impl Message {
     pub fn text(&self) -> Option<String> {
         match self {
             Message::Assistant { message } => {
-                let texts: Vec<&str> = message
-                    .content
-                    .iter()
-                    .filter_map(|b| b.as_text())
-                    .collect();
-                if texts.is_empty() {
-                    None
-                } else {
-                    Some(texts.join(""))
+                let mut result = String::new();
+                for block in &message.content {
+                    if let Some(text) = block.as_text() {
+                        result.push_str(text);
+                    }
                 }
+                if result.is_empty() { None } else { Some(result) }
             }
             _ => None,
         }
@@ -155,4 +155,18 @@ impl Message {
             _ => None,
         }
     }
+}
+
+/// Collect messages from a stream until a Result message is received.
+pub(crate) async fn collect_until_result(stream: &mut (impl Stream<Item = Result<Message>> + Unpin)) -> Result<Vec<Message>> {
+    let mut messages = Vec::new();
+    while let Some(msg) = stream.next().await {
+        let msg = msg?;
+        let is_result = msg.is_result();
+        messages.push(msg);
+        if is_result {
+            break;
+        }
+    }
+    Ok(messages)
 }

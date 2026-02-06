@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use crate::error::{Error, Result};
 
 /// Minimum required CLI version.
+#[allow(dead_code)]
 const MIN_CLI_VERSION: &str = "2.0.0";
 
 /// Find the `claude` CLI binary in PATH.
@@ -13,6 +14,7 @@ pub fn find_cli() -> Result<PathBuf> {
 /// Check that the CLI version meets the minimum requirement.
 ///
 /// Runs `claude --version` and parses the semver output.
+#[allow(dead_code)]
 pub async fn check_cli_version(cli_path: &std::path::Path) -> Result<semver::Version> {
     let output = tokio::process::Command::new(cli_path)
         .arg("--version")

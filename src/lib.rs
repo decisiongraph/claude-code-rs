@@ -1,10 +1,10 @@
 pub mod client;
 pub mod error;
 pub mod mcp;
-pub mod message_parser;
-pub mod query;
+pub(crate) mod message_parser;
+pub(crate) mod query;
 pub mod query_fn;
-pub mod transport;
+pub(crate) mod transport;
 pub mod types;
 
 // Re-export key types at crate root for ergonomic use.
@@ -15,7 +15,7 @@ pub use types::{
 };
 
 // Re-export primary APIs.
-pub use client::ClaudeSDKClient;
+pub use client::{ClaudeSDKClient, MessageStream};
 pub use query_fn::{query, query_collect, query_text};
 
 // Re-export hook helpers.
@@ -25,4 +25,4 @@ pub use types::hooks::{hook_callback, HookDefinition, HookEvent, HookMatcher, Ho
 pub use types::permissions::permission_callback;
 
 // Re-export MCP helpers.
-pub use mcp::{create_sdk_mcp_server, new_tool, McpTool, McpToolResult, SdkMcpServer};
+pub use mcp::{new_tool, McpTool, McpToolResult, SdkMcpServer};

@@ -3,7 +3,7 @@ use serde_json::Value;
 /// Route a JSONRPC request to the appropriate handler.
 pub fn route_jsonrpc(
     request: &Value,
-    tools: &[super::server::McpTool],
+    tools: &[&super::server::McpTool],
 ) -> Option<JsonRpcAction> {
     let method = request.get("method")?.as_str()?;
     let id = request.get("id").cloned();
@@ -114,7 +114,8 @@ mod tests {
     #[test]
     fn route_initialize() {
         let req = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}});
-        let action = route_jsonrpc(&req, &[]).unwrap();
+        let empty: Vec<&super::super::server::McpTool> = vec![];
+        let action = route_jsonrpc(&req, &empty).unwrap();
         assert!(matches!(action, JsonRpcAction::Response { .. }));
     }
 
@@ -127,7 +128,7 @@ mod tests {
             handler: super::super::server::noop_handler(),
         };
         let req = serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"});
-        let action = route_jsonrpc(&req, &[tool]).unwrap();
+        let action = route_jsonrpc(&req, &[&tool]).unwrap();
         match action {
             JsonRpcAction::Response { result, .. } => {
                 let tools = result["tools"].as_array().unwrap();
@@ -146,7 +147,8 @@ mod tests {
             "method": "tools/call",
             "params": {"name": "calc", "arguments": {"a": 1}}
         });
-        let action = route_jsonrpc(&req, &[]).unwrap();
+        let empty: Vec<&super::super::server::McpTool> = vec![];
+        let action = route_jsonrpc(&req, &empty).unwrap();
         match action {
             JsonRpcAction::ToolCall { tool_name, arguments, .. } => {
                 assert_eq!(tool_name, "calc");
@@ -159,7 +161,8 @@ mod tests {
     #[test]
     fn route_unknown_method() {
         let req = serde_json::json!({"jsonrpc": "2.0", "id": 4, "method": "foo/bar"});
-        let action = route_jsonrpc(&req, &[]).unwrap();
+        let empty: Vec<&super::super::server::McpTool> = vec![];
+        let action = route_jsonrpc(&req, &empty).unwrap();
         assert!(matches!(action, JsonRpcAction::Error { .. }));
     }
 }

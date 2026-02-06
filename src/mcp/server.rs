@@ -21,6 +21,7 @@ pub struct McpToolResultContent {
 }
 
 impl McpToolResult {
+    #[must_use]
     pub fn text(text: impl Into<String>) -> Self {
         Self {
             content: vec![McpToolResultContent {
@@ -31,6 +32,7 @@ impl McpToolResult {
         }
     }
 
+    #[must_use]
     pub fn error(message: impl Into<String>) -> Self {
         Self {
             content: vec![McpToolResultContent {
@@ -102,6 +104,7 @@ where
 }
 
 /// A no-op handler for testing.
+#[cfg(test)]
 pub(crate) fn noop_handler() -> McpToolHandler {
     Arc::new(|_| Box::pin(async { McpToolResult::text("noop") }))
 }
@@ -112,6 +115,7 @@ pub struct SdkMcpServer {
 }
 
 impl SdkMcpServer {
+    #[must_use]
     pub fn new(tools: Vec<McpTool>) -> Self {
         let mut map = HashMap::new();
         for tool in tools {
@@ -127,23 +131,10 @@ impl SdkMcpServer {
 
     /// Handle a JSONRPC message and return the response.
     pub async fn handle_message(&self, message: Value) -> Value {
-        let tool_vec: Vec<McpTool> = Vec::new();
-        // Build a temporary tool vec for the router (it only needs name/desc/schema).
-        let tools_for_router: Vec<McpTool> = self
-            .tools
-            .values()
-            .map(|t| McpTool {
-                name: t.name.clone(),
-                description: t.description.clone(),
-                input_schema: t.input_schema.clone(),
-                handler: noop_handler(),
-            })
-            .collect();
-
-        let action = match jsonrpc::route_jsonrpc(&message, &tools_for_router) {
+        let tools_ref: Vec<&McpTool> = self.tools.values().collect();
+        let action = match jsonrpc::route_jsonrpc(&message, &tools_ref) {
             Some(action) => action,
             None => {
-                drop(tool_vec);
                 return jsonrpc::jsonrpc_error(
                     message.get("id").cloned(),
                     -32600,
@@ -181,18 +172,13 @@ impl SdkMcpServer {
     }
 }
 
-/// Create an SdkMcpServer from a list of tools.
-pub fn create_sdk_mcp_server(tools: Vec<McpTool>) -> SdkMcpServer {
-    SdkMcpServer::new(tools)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[tokio::test]
     async fn sdk_mcp_server_handles_initialize() {
-        let server = create_sdk_mcp_server(vec![]);
+        let server = SdkMcpServer::new(vec![]);
         let req = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}});
         let resp = server.handle_message(req).await;
         assert!(resp.get("result").is_some());
@@ -204,7 +190,7 @@ mod tests {
         let tool = new_tool("add", "Add two numbers", serde_json::json!({"type": "object"}), |_| async {
             McpToolResult::text("42")
         });
-        let server = create_sdk_mcp_server(vec![tool]);
+        let server = SdkMcpServer::new(vec![tool]);
         let req = serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"});
         let resp = server.handle_message(req).await;
         let tools = resp["result"]["tools"].as_array().unwrap();
@@ -224,7 +210,7 @@ mod tests {
                 McpToolResult::text(format!("{}", a + b))
             },
         );
-        let server = create_sdk_mcp_server(vec![tool]);
+        let server = SdkMcpServer::new(vec![tool]);
         let req = serde_json::json!({
             "jsonrpc": "2.0",
             "id": 3,
@@ -238,7 +224,7 @@ mod tests {
 
     #[tokio::test]
     async fn sdk_mcp_server_unknown_tool() {
-        let server = create_sdk_mcp_server(vec![]);
+        let server = SdkMcpServer::new(vec![]);
         let req = serde_json::json!({
             "jsonrpc": "2.0",
             "id": 4,

@@ -1,7 +1,9 @@
 pub mod cli_discovery;
 pub mod subprocess;
 
-use async_trait::async_trait;
+use std::future::Future;
+use std::pin::Pin;
+
 use serde_json::Value;
 use tokio::sync::mpsc;
 
@@ -31,18 +33,18 @@ impl TransportWriter {
 }
 
 /// Trait for a transport layer that communicates with the Claude CLI.
-#[async_trait]
+#[allow(dead_code)]
 pub trait Transport: Send + Sync {
     /// Connect to the CLI process.
     ///
     /// Returns a receiver for incoming messages and a writer for outgoing messages.
-    async fn connect(&mut self) -> Result<(mpsc::Receiver<Result<Value>>, TransportWriter)>;
+    fn connect(&mut self) -> Pin<Box<dyn Future<Output = Result<(mpsc::Receiver<Result<Value>>, TransportWriter)>> + Send + '_>>;
 
     /// Signal end of input (close stdin).
-    async fn end_input(&self) -> Result<()>;
+    fn end_input(&self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
 
     /// Close the transport and kill the process.
-    async fn close(&mut self) -> Result<()>;
+    fn close(&mut self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
 
     /// Check if the transport is still connected.
     fn is_ready(&self) -> bool;

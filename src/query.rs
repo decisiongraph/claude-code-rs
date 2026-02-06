@@ -8,11 +8,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::{Error, Result};
 use crate::message_parser::parse_message;
-use crate::types::control::{SDKCapabilities, SDKControlCommand, SDKInitMessage};
-use crate::types::hooks::{
-    HookDecision, HookDefinition, HookEvent, HookInput, NotificationInput, PostToolUseInput,
-    PreToolUseInput, StopInput,
-};
+use crate::types::control::{SDKCapabilities, SDKControlCommand};
+use crate::types::hooks::{HookDecision, HookDefinition, HookEvent, HookInput};
 use crate::types::messages::Message;
 use crate::types::permissions::{CanUseToolCallback, CanUseToolInput};
 use crate::transport::{Transport, TransportWriter};
@@ -71,7 +68,7 @@ impl Query {
         let (consumer_tx, consumer_rx) = mpsc::channel::<Result<Message>>(256);
 
         // Start the message router task.
-        self.spawn_router(raw_rx, consumer_tx, writer.clone());
+        self.spawn_router(raw_rx, consumer_tx, writer);
 
         // Perform init handshake.
         self.initialize().await?;
@@ -88,7 +85,7 @@ impl Query {
                 "role": "user",
                 "content": prompt
             },
-            "session_id": session_id.unwrap_or(""),
+            "session_id": session_id,
             "parent_tool_use_id": null
         });
         writer.write(msg).await
@@ -96,39 +93,7 @@ impl Query {
 
     /// Send a control command and wait for the response.
     pub async fn send_control_command(&self, command: SDKControlCommand) -> Result<Value> {
-        let writer = self.writer.as_ref().ok_or(Error::NotConnected)?;
-        let request_id = generate_request_id();
-
-        let mut request = serde_json::json!({
-            "type": "control_request",
-            "request_id": request_id,
-            "request": {
-                "subtype": command.command_type,
-            }
-        });
-
-        if let Value::Object(params) = command.params {
-            if let Value::Object(ref mut req) = request["request"] {
-                for (k, v) in params {
-                    req.insert(k, v);
-                }
-            }
-        }
-
-        let (tx, rx) = oneshot::channel();
-        {
-            let mut pending = self.pending_responses.lock().await;
-            pending.insert(request_id.clone(), tx);
-        }
-
-        writer.write(request).await?;
-
-        let response = tokio::time::timeout(self.control_timeout, rx)
-            .await
-            .map_err(|_| Error::ControlTimeout(self.control_timeout))?
-            .map_err(|_| Error::ControlProtocol("response channel dropped".into()))?;
-
-        Ok(response)
+        self.send_raw_control_request(command.to_request_body()).await
     }
 
     pub async fn interrupt(&self) -> Result<Value> {
@@ -160,8 +125,14 @@ impl Query {
         self.server_info.lock().await.clone()
     }
 
+    #[allow(dead_code)]
     pub async fn end_input(&self) -> Result<()> {
         self.transport.end_input().await
+    }
+
+    /// Wait until the cancel token is triggered (transport/router finished).
+    pub async fn closed(&self) {
+        self.cancel.cancelled().await;
     }
 
     pub async fn close(&mut self) -> Result<()> {
@@ -170,29 +141,15 @@ impl Query {
         self.transport.close().await
     }
 
-    async fn initialize(&self) -> Result<()> {
+    /// Send a raw control request and wait for the response with timeout.
+    async fn send_raw_control_request(&self, request_body: Value) -> Result<Value> {
         let writer = self.writer.as_ref().ok_or(Error::NotConnected)?;
-
-        let capabilities = SDKCapabilities {
-            hooks: !self.hooks.is_empty(),
-            permissions: self.can_use_tool.is_some(),
-            mcp: self.mcp_handler.is_some(),
-            agent_definitions: vec![],
-            mcp_servers: vec![],
-        };
-
-        let init_msg = SDKInitMessage::new(capabilities);
-        let init_value = serde_json::to_value(&init_msg)?;
-
         let request_id = generate_request_id();
+
         let request = serde_json::json!({
             "type": "control_request",
             "request_id": request_id,
-            "request": {
-                "subtype": "initialize",
-                "protocol_version": "1",
-                "capabilities": init_value.get("capabilities"),
-            }
+            "request": request_body,
         });
 
         let (tx, rx) = oneshot::channel();
@@ -203,10 +160,26 @@ impl Query {
 
         writer.write(request).await?;
 
-        let response = tokio::time::timeout(self.control_timeout, rx)
+        tokio::time::timeout(self.control_timeout, rx)
             .await
             .map_err(|_| Error::ControlTimeout(self.control_timeout))?
-            .map_err(|_| Error::ControlProtocol("init response channel dropped".into()))?;
+            .map_err(|_| Error::ControlProtocol("response channel dropped".into()))
+    }
+
+    async fn initialize(&self) -> Result<()> {
+        let capabilities = SDKCapabilities {
+            hooks: !self.hooks.is_empty(),
+            permissions: self.can_use_tool.is_some(),
+            mcp: self.mcp_handler.is_some(),
+            agent_definitions: vec![],
+            mcp_servers: vec![],
+        };
+
+        let response = self.send_raw_control_request(serde_json::json!({
+            "subtype": "initialize",
+            "protocol_version": "1",
+            "capabilities": capabilities,
+        })).await?;
 
         {
             let mut info = self.server_info.lock().await;
@@ -269,6 +242,9 @@ impl Query {
                     }
                 }
             }
+            // Signal that the router is done so Query::closed() returns
+            // and the owning task can drop the Query cleanly.
+            cancel.cancel();
         });
     }
 }
@@ -378,55 +354,40 @@ async fn handle_hook_callback(request: &Value, hooks: &[HookDefinition]) -> Valu
     let hook = hook_index.and_then(|i| hooks.get(i));
 
     if let Some(hook) = hook {
+        let event_name = hook.event.as_str();
         let typed_input = match hook.event {
-            HookEvent::PreToolUse => {
-                let pre: PreToolUseInput =
-                    serde_json::from_value(hook_input).unwrap_or(PreToolUseInput {
-                        tool_name: String::new(),
-                        tool_input: Value::Null,
-                    });
-                HookInput::PreToolUse(pre)
-            }
-            HookEvent::PostToolUse => {
-                let post: PostToolUseInput =
-                    serde_json::from_value(hook_input).unwrap_or(PostToolUseInput {
-                        tool_name: String::new(),
-                        tool_input: Value::Null,
-                        tool_output: Value::Null,
-                    });
-                HookInput::PostToolUse(post)
-            }
-            HookEvent::Notification => {
-                let notif: NotificationInput =
-                    serde_json::from_value(hook_input).unwrap_or(NotificationInput {
-                        title: String::new(),
-                        message: None,
-                    });
-                HookInput::Notification(notif)
-            }
-            HookEvent::Stop | HookEvent::SubagentStop => {
-                let stop: StopInput =
-                    serde_json::from_value(hook_input).unwrap_or(StopInput { reason: None });
-                HookInput::Stop(stop)
-            }
+            HookEvent::PreToolUse => HookInput::PreToolUse(
+                serde_json::from_value(hook_input.clone()).unwrap_or_else(|e| {
+                    tracing::warn!(event = event_name, "hook input parse failed: {e}");
+                    Default::default()
+                }),
+            ),
+            HookEvent::PostToolUse => HookInput::PostToolUse(
+                serde_json::from_value(hook_input.clone()).unwrap_or_else(|e| {
+                    tracing::warn!(event = event_name, "hook input parse failed: {e}");
+                    Default::default()
+                }),
+            ),
+            HookEvent::Notification => HookInput::Notification(
+                serde_json::from_value(hook_input.clone()).unwrap_or_else(|e| {
+                    tracing::warn!(event = event_name, "hook input parse failed: {e}");
+                    Default::default()
+                }),
+            ),
+            HookEvent::Stop | HookEvent::SubagentStop => HookInput::Stop(
+                serde_json::from_value(hook_input.clone()).unwrap_or_else(|e| {
+                    tracing::warn!(event = event_name, "hook input parse failed: {e}");
+                    Default::default()
+                }),
+            ),
         };
 
         let output = (hook.callback)(typed_input).await;
         let mut result = serde_json::json!({"continue": true});
         if let Some(decision) = &output.decision {
             let hook_specific = serde_json::json!({
-                "hookEventName": match hook.event {
-                    HookEvent::PreToolUse => "PreToolUse",
-                    HookEvent::PostToolUse => "PostToolUse",
-                    HookEvent::Notification => "Notification",
-                    HookEvent::Stop => "Stop",
-                    HookEvent::SubagentStop => "SubagentStop",
-                },
-                "permissionDecision": match decision {
-                    HookDecision::Approve => "approve",
-                    HookDecision::Block => "deny",
-                    HookDecision::Ignore => "ignore",
-                },
+                "hookEventName": hook.event.as_str(),
+                "permissionDecision": decision.as_str(),
                 "permissionDecisionReason": output.reason.as_deref().unwrap_or(""),
             });
             result["hookSpecificOutput"] = hook_specific;

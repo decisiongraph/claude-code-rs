@@ -2,6 +2,7 @@ use std::io;
 
 /// All errors that can occur in the Claude Agent SDK.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
     #[error("claude CLI not found in PATH")]
     CliNotFound,

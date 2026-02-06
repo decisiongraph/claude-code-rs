@@ -31,26 +31,21 @@ pub fn parse_message(raw: Value) -> Result<Message> {
     }
 }
 
+/// Extract and deserialize the "message" field (or the raw value itself) from a wrapper.
+fn parse_wrapped_message<T: serde::de::DeserializeOwned>(raw: &Value, label: &str) -> Result<T> {
+    let value = raw.get("message").cloned().unwrap_or_else(|| raw.clone());
+    serde_json::from_value(value).map_err(|e| Error::MessageParse {
+        reason: format!("{label} message parse failed: {e}"),
+    })
+}
+
 fn parse_assistant(raw: Value) -> Result<Message> {
-    // The assistant message body is in the "message" field.
-    let message_value = raw.get("message").cloned().unwrap_or(raw.clone());
-
-    let message: AssistantMessage =
-        serde_json::from_value(message_value).map_err(|e| Error::MessageParse {
-            reason: format!("assistant message parse failed: {e}"),
-        })?;
-
+    let message: AssistantMessage = parse_wrapped_message(&raw, "assistant")?;
     Ok(Message::Assistant { message })
 }
 
 fn parse_user(raw: Value) -> Result<Message> {
-    let message_value = raw.get("message").cloned().unwrap_or(raw.clone());
-
-    let message: UserMessage =
-        serde_json::from_value(message_value).map_err(|e| Error::MessageParse {
-            reason: format!("user message parse failed: {e}"),
-        })?;
-
+    let message: UserMessage = parse_wrapped_message(&raw, "user")?;
     Ok(Message::User { message })
 }
 

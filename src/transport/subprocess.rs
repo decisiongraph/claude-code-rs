@@ -1,11 +1,11 @@
+use std::future::Future;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::pin::Pin;
 
-use async_trait::async_trait;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::error::{Error, Result};
@@ -23,7 +23,7 @@ pub struct SubprocessTransport {
     ready: bool,
 }
 
-/// Subset of options needed for building the CLI command.
+/// Subset of ClaudeAgentOptions needed for building the CLI command.
 struct BuildOptions {
     model: Option<String>,
     system_prompt: Option<String>,
@@ -43,28 +43,34 @@ struct BuildOptions {
     on_stderr: Option<StderrCallback>,
 }
 
+impl From<&ClaudeAgentOptions> for BuildOptions {
+    fn from(opts: &ClaudeAgentOptions) -> Self {
+        Self {
+            model: opts.model.clone(),
+            system_prompt: opts.system_prompt.clone(),
+            append_system_prompt: opts.append_system_prompt.clone(),
+            max_turns: opts.max_turns,
+            max_tokens: opts.max_tokens,
+            session_id: opts.session_id.clone(),
+            continue_session: opts.continue_session,
+            cwd: opts.cwd.clone(),
+            permission_mode: opts.permission_mode.clone(),
+            allowed_tools: opts.allowed_tools.clone(),
+            no_cache: opts.no_cache,
+            temperature: opts.temperature,
+            context_window: opts.context_window,
+            extra_cli_args: opts.extra_cli_args.clone(),
+            env: opts.env.clone(),
+            on_stderr: opts.on_stderr.clone(),
+        }
+    }
+}
+
 impl SubprocessTransport {
     pub fn new(cli_path: PathBuf, options: &ClaudeAgentOptions) -> Self {
         Self {
             cli_path,
-            options: BuildOptions {
-                model: options.model.clone(),
-                system_prompt: options.system_prompt.clone(),
-                append_system_prompt: options.append_system_prompt.clone(),
-                max_turns: options.max_turns,
-                max_tokens: options.max_tokens,
-                session_id: options.session_id.clone(),
-                continue_session: options.continue_session,
-                cwd: options.cwd.clone(),
-                permission_mode: options.permission_mode.clone(),
-                allowed_tools: options.allowed_tools.clone(),
-                no_cache: options.no_cache,
-                temperature: options.temperature,
-                context_window: options.context_window,
-                extra_cli_args: options.extra_cli_args.clone(),
-                env: options.env.clone(),
-                on_stderr: options.on_stderr.clone(),
-            },
+            options: BuildOptions::from(options),
             child: None,
             cancel: CancellationToken::new(),
             ready: false,
@@ -154,9 +160,26 @@ impl SubprocessTransport {
     }
 }
 
-#[async_trait]
 impl Transport for SubprocessTransport {
-    async fn connect(&mut self) -> Result<(mpsc::Receiver<Result<Value>>, TransportWriter)> {
+    fn connect(&mut self) -> Pin<Box<dyn Future<Output = Result<(mpsc::Receiver<Result<Value>>, TransportWriter)>> + Send + '_>> {
+        Box::pin(self.connect_impl())
+    }
+
+    fn end_input(&self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn close(&mut self) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
+        Box::pin(self.close_impl())
+    }
+
+    fn is_ready(&self) -> bool {
+        self.ready
+    }
+}
+
+impl SubprocessTransport {
+    async fn connect_impl(&mut self) -> Result<(mpsc::Receiver<Result<Value>>, TransportWriter)> {
         if self.ready {
             return Err(Error::AlreadyConnected);
         }
@@ -179,7 +202,6 @@ impl Transport for SubprocessTransport {
             .take()
             .ok_or_else(|| Error::CliConnection("no stdin".into()))?;
 
-        let stdin = Arc::new(Mutex::new(stdin));
         self.child = Some(child);
         self.ready = true;
 
@@ -192,7 +214,7 @@ impl Transport for SubprocessTransport {
         let cancel = self.cancel.clone();
 
         // Stdout reader task.
-        let stdout_tx = read_tx.clone();
+        let stdout_tx = read_tx;
         let stdout_cancel = cancel.clone();
         tokio::spawn(async move {
             let reader = BufReader::new(stdout);
@@ -232,8 +254,8 @@ impl Transport for SubprocessTransport {
 
         // Stdin writer task: reads from write channel, serializes to stdin.
         let write_cancel = cancel.clone();
-        let write_stdin = stdin.clone();
         tokio::spawn(async move {
+            let mut stdin = stdin;
             loop {
                 tokio::select! {
                     _ = write_cancel.cancelled() => break,
@@ -249,12 +271,11 @@ impl Transport for SubprocessTransport {
                                 };
                                 data.push('\n');
 
-                                let mut guard = write_stdin.lock().await;
-                                if let Err(e) = guard.write_all(data.as_bytes()).await {
+                                if let Err(e) = stdin.write_all(data.as_bytes()).await {
                                     tracing::error!("failed to write to stdin: {e}");
                                     break;
                                 }
-                                if let Err(e) = guard.flush().await {
+                                if let Err(e) = stdin.flush().await {
                                     tracing::error!("failed to flush stdin: {e}");
                                     break;
                                 }
@@ -296,14 +317,7 @@ impl Transport for SubprocessTransport {
         Ok((read_rx, writer))
     }
 
-    async fn end_input(&self) -> Result<()> {
-        // Closing the writer channel will cause the writer task to exit,
-        // which effectively closes stdin. The caller drops the TransportWriter.
-        // For explicit shutdown, we cancel everything.
-        Ok(())
-    }
-
-    async fn close(&mut self) -> Result<()> {
+    async fn close_impl(&mut self) -> Result<()> {
         self.ready = false;
         self.cancel.cancel();
 
@@ -313,10 +327,6 @@ impl Transport for SubprocessTransport {
 
         self.child = None;
         Ok(())
-    }
-
-    fn is_ready(&self) -> bool {
-        self.ready
     }
 }
 

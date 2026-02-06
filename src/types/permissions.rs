@@ -7,6 +7,7 @@ use std::sync::Arc;
 /// Permission mode for tool usage.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum PermissionMode {
     /// Default permissions - prompt user for dangerous tools.
     Default,
@@ -35,6 +36,7 @@ pub struct PermissionResult {
 }
 
 impl PermissionResult {
+    #[must_use]
     pub fn allow() -> Self {
         Self {
             allowed: true,
@@ -42,6 +44,7 @@ impl PermissionResult {
         }
     }
 
+    #[must_use]
     pub fn deny(reason: impl Into<String>) -> Self {
         Self {
             allowed: false,

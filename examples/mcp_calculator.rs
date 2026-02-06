@@ -1,6 +1,6 @@
 use claude_code_rs::{
-    new_tool, create_sdk_mcp_server, ClaudeAgentOptions, ClaudeSDKClient, McpToolResult, Message,
-    PermissionMode,
+    new_tool, ClaudeAgentOptions, ClaudeSDKClient, McpToolResult, Message,
+    PermissionMode, SdkMcpServer,
 };
 use tokio_stream::StreamExt;
 
@@ -43,7 +43,7 @@ async fn main() -> claude_code_rs::Result<()> {
         },
     );
 
-    let server = create_sdk_mcp_server(vec![add_tool, multiply_tool]);
+    let server = SdkMcpServer::new(vec![add_tool, multiply_tool]);
 
     let options = ClaudeAgentOptions {
         permission_mode: PermissionMode::AcceptAll,
@@ -52,32 +52,33 @@ async fn main() -> claude_code_rs::Result<()> {
     };
 
     let mut client = ClaudeSDKClient::new(options);
-    client.add_mcp_server(server);
+    client.add_mcp_server("calculator", server)?;
     client.connect(None).await?;
 
     client
         .query("What is (12 + 8) * 3? Use the calculator tools.", None)
         .await?;
 
-    let mut stream = client.receive_messages();
-    while let Some(msg) = stream.next().await {
-        match msg? {
-            Message::Assistant { message } => {
-                for block in &message.content {
-                    if let Some(text) = block.as_text() {
-                        print!("{text}");
+    {
+        let mut stream = client.receive_messages();
+        while let Some(msg) = stream.next().await {
+            match msg? {
+                Message::Assistant { message } => {
+                    for block in &message.content {
+                        if let Some(text) = block.as_text() {
+                            print!("{text}");
+                        }
                     }
                 }
+                Message::Result { .. } => {
+                    println!("\n[done]");
+                    break;
+                }
+                _ => {}
             }
-            Message::Result { .. } => {
-                println!("\n[done]");
-                break;
-            }
-            _ => {}
         }
-    }
+    } // stream drops here, receiver auto-restores
 
-    drop(stream);
     client.disconnect().await?;
     Ok(())
 }
