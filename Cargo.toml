@@ -1,0 +1,31 @@
+[package]
+name = "claude-code-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Rust rewrite of the official Anthropic Claude Agent SDK (Python). Wraps Claude Code CLI via subprocess with bidirectional JSON streaming."
+license = "MIT"
+rust-version = "1.70"
+repository = "https://github.com/decisiongraph/claude-code-rs"
+homepage = "https://github.com/decisiongraph/claude-code-rs"
+keywords = ["claude", "anthropic", "agent", "sdk", "ai"]
+categories = ["api-bindings", "asynchronous"]
+readme = "README.md"
+
+[dependencies]
+tokio = { version = "1", features = ["process", "sync", "io-util", "macros", "rt-multi-thread", "time"] }
+async-trait = "0.1"
+futures = "0.3"
+tokio-stream = "0.1"
+tokio-util = "0.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+rand = "0.9"
+which = "7"
+semver = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+tracing-subscriber = "0.3"
+tempfile = "3"
