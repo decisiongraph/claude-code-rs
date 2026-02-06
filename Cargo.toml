@@ -1,6 +1,6 @@
 [package]
 name = "claude-code-rs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Rust rewrite of the official Anthropic Claude Agent SDK (Python). Wraps Claude Code CLI via subprocess with bidirectional JSON streaming."
 license = "MIT"
