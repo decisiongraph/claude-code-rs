@@ -114,20 +114,38 @@ let mut client = ClaudeSDKClient::new(ClaudeAgentOptions::default());
 client.add_mcp_server(server);
 ```
 
+### WebSocket transport
+
+By default the SDK communicates with the CLI over stdin/stdout. Enable the `websocket` feature to use a WebSocket transport instead — the SDK starts a local WS server and passes `--sdk-url ws://127.0.0.1:{port}` to the CLI.
+
+```toml
+[dependencies]
+claude-code-rs = { version = "0.1", features = ["websocket"] }
+```
+
+```rust
+let options = ClaudeAgentOptions {
+    use_websocket: true,
+    ..Default::default()
+};
+```
+
+The NDJSON protocol is identical — only the transport layer changes. WebSocket avoids stdin/stdout conflicts when the CLI also needs to print output (e.g. `--print` mode).
+
 ## Architecture
 
 Mirrors the Python SDK's architecture:
 
 | Layer | Python | Rust |
 |-------|--------|------|
-| Transport | `SubprocessCLITransport` | `SubprocessTransport` + `TransportWriter` |
+| Transport | `SubprocessCLITransport` | `SubprocessTransport` / `WebSocketTransport` |
 | Protocol | `Query` | `Query` (spawn_router task) |
 | Messages | dataclasses | enums + serde |
 | One-shot API | `query()` | `query()` / `query_text()` / `query_collect()` |
 | Stateful API | `ClaudeSDKClient` | `ClaudeSDKClient` |
 | MCP | `SdkMcpServer` | `SdkMcpServer` + JSONRPC router |
 
-All communication is newline-delimited JSON over stdin/stdout with a bidirectional control protocol for hooks, permissions, MCP routing, and interrupts.
+All communication is newline-delimited JSON over stdin/stdout (or WebSocket) with a bidirectional control protocol for hooks, permissions, MCP routing, and interrupts.
 
 ## Examples
 

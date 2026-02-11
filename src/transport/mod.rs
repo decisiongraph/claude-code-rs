@@ -1,5 +1,7 @@
 pub mod cli_discovery;
 pub mod subprocess;
+#[cfg(feature = "websocket")]
+pub mod websocket;
 
 use std::future::Future;
 use std::pin::Pin;

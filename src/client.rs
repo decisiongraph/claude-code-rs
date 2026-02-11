@@ -12,6 +12,8 @@ use crate::error::{Error, Result};
 use crate::mcp::SdkMcpServer;
 use crate::query::{McpMessageHandler, Query};
 use crate::transport::subprocess::SubprocessTransport;
+#[cfg(feature = "websocket")]
+use crate::transport::websocket::WebSocketTransport;
 use crate::types::messages::Message;
 use crate::types::options::ClaudeAgentOptions;
 
@@ -141,12 +143,21 @@ impl ClaudeSDKClient {
         }
 
         let cli_path = self.options.resolve_cli_path()?;
-        let transport = SubprocessTransport::new(cli_path, &self.options);
+
+        #[cfg(feature = "websocket")]
+        let transport: Box<dyn crate::transport::Transport> = if self.options.use_websocket {
+            Box::new(WebSocketTransport::new(cli_path, &self.options))
+        } else {
+            Box::new(SubprocessTransport::new(cli_path, &self.options))
+        };
+        #[cfg(not(feature = "websocket"))]
+        let transport: Box<dyn crate::transport::Transport> =
+            Box::new(SubprocessTransport::new(cli_path, &self.options));
 
         let mcp_handler = self.build_mcp_handler();
 
         let mut q = Query::new(
-            Box::new(transport),
+            transport,
             self.options.hooks.clone(),
             self.options.can_use_tool.clone(),
             mcp_handler,

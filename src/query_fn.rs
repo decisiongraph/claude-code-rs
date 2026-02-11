@@ -3,6 +3,8 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::error::{Error, Result};
 use crate::query::Query;
 use crate::transport::subprocess::SubprocessTransport;
+#[cfg(feature = "websocket")]
+use crate::transport::websocket::WebSocketTransport;
 use crate::types::messages::Message;
 use crate::types::options::ClaudeAgentOptions;
 
@@ -47,9 +49,19 @@ pub async fn query(
     options: ClaudeAgentOptions,
 ) -> Result<ReceiverStream<Result<Message>>> {
     let cli_path = options.resolve_cli_path()?;
-    let transport = SubprocessTransport::new(cli_path, &options);
+
+    #[cfg(feature = "websocket")]
+    let transport: Box<dyn crate::transport::Transport> = if options.use_websocket {
+        Box::new(WebSocketTransport::new(cli_path, &options))
+    } else {
+        Box::new(SubprocessTransport::new(cli_path, &options))
+    };
+    #[cfg(not(feature = "websocket"))]
+    let transport: Box<dyn crate::transport::Transport> =
+        Box::new(SubprocessTransport::new(cli_path, &options));
+
     let mut q = Query::new(
-        Box::new(transport),
+        transport,
         options.hooks,
         options.can_use_tool,
         None, // MCP handler wired through client, not one-shot query

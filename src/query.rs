@@ -328,7 +328,11 @@ async fn handle_can_use_tool(request: &Value, callback: &Option<CanUseToolCallba
     if let Some(cb) = callback {
         let result = cb(CanUseToolInput { tool_name, input }).await;
         if result.allowed {
-            serde_json::json!({"behavior": "allow"})
+            let mut response = serde_json::json!({"behavior": "allow"});
+            if let Some(updated) = result.updated_input {
+                response["updatedInput"] = updated;
+            }
+            response
         } else {
             serde_json::json!({
                 "behavior": "deny",

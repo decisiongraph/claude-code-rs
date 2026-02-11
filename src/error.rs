@@ -48,6 +48,10 @@ pub enum Error {
 
     #[error("hook error: {0}")]
     Hook(String),
+
+    #[cfg(feature = "websocket")]
+    #[error("WebSocket error: {0}")]
+    WebSocket(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

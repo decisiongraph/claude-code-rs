@@ -100,6 +100,10 @@ pub struct ClaudeAgentOptions {
 
     /// Context window fraction (0.0-1.0) to use before summarizing.
     pub context_window: Option<f64>,
+
+    /// Use WebSocket transport instead of subprocess stdin/stdout.
+    /// Requires the `websocket` feature. Ignored when feature is not enabled.
+    pub use_websocket: bool,
 }
 
 /// Callback for CLI stderr lines.

@@ -33,6 +33,9 @@ pub struct PermissionResult {
     /// Optional reason for denial.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// Optional updated input to inject into the tool call (e.g. AskUserQuestion answers).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_input: Option<Value>,
 }
 
 impl PermissionResult {
@@ -41,6 +44,17 @@ impl PermissionResult {
         Self {
             allowed: true,
             reason: None,
+            updated_input: None,
+        }
+    }
+
+    /// Allow with updated input (e.g. injecting answers into AskUserQuestion).
+    #[must_use]
+    pub fn allow_with_input(input: Value) -> Self {
+        Self {
+            allowed: true,
+            reason: None,
+            updated_input: Some(input),
         }
     }
 
@@ -49,6 +63,7 @@ impl PermissionResult {
         Self {
             allowed: false,
             reason: Some(reason.into()),
+            updated_input: None,
         }
     }
 }

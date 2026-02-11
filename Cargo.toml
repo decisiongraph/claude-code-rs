@@ -11,8 +11,12 @@ keywords = ["claude", "anthropic", "agent", "sdk", "ai"]
 categories = ["api-bindings", "asynchronous"]
 readme = "README.md"
 
+[features]
+default = []
+websocket = ["tokio-tungstenite", "futures-util"]
+
 [dependencies]
-tokio = { version = "1", features = ["process", "sync", "io-util", "macros", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["process", "sync", "io-util", "macros", "rt-multi-thread", "time", "net"] }
 tokio-stream = "0.1"
 tokio-util = "0.7"
 serde = { version = "1", features = ["derive"] }
@@ -22,6 +26,8 @@ tracing = "0.1"
 rand = "0.9"
 which = "7"
 semver = "1"
+tokio-tungstenite = { version = "0.24", optional = true }
+futures-util = { version = "0.3", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }
